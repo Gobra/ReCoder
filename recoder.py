@@ -4,6 +4,7 @@ import time
 import shutil
 import subprocess
 import threading
+import multiprocessing
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -185,22 +186,24 @@ class Image:
         
         self.transcode_image_to_avif(file_path, new_file_path, params)
 
-    def transcode_images(self, image_files, params=BALANCED):
+    def transcode_images(self, image_files, threads=multiprocessing.cpu_count(), params=BALANCED):
         # report how many images are being transcoded
         print(f"Transcoding {len(image_files)} images...")
 
         self.counter.start(len(image_files))
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(max_workers=threads) as executor:
             executor.map(self.transcode_image, image_files, [params] * len(image_files))
 
 #---------------------------------------------
 # Task counter and reporter
 #---------------------------------------------
 class TaskCounter:
-    def __init__(self, total):
+    def __init__(self, total, interval=1):
         self.count = 0
         self.total = total
         self.start_time = None
+        self.last_report_time = 0
+        self.report_interval = interval  # Report interval in seconds
         self.lock = threading.Lock()
 
     def start(self, total):
@@ -208,6 +211,7 @@ class TaskCounter:
             self.count = 0
             self.total = total
             self.start_time = time.time()
+            self.last_report_time = self.start_time
 
     def increment(self):
         with self.lock:
@@ -227,6 +231,12 @@ class TaskCounter:
         :param file_path: The path of the last file being processed.
         :param max_path_length: Maximum length of the displayed file path.
         """
+
+        current_time = time.time()
+        if current_time - self.last_report_time < self.report_interval:
+            return
+        self.last_report_time = current_time
+
         # Ensure progress is within bounds
         value = min(max(self.progress(), 0), 1)
 
@@ -285,12 +295,13 @@ def transcode_movies(files):
     codec = Video()
     codec.transcode_videos(files)
 
-def transcode_images(files):
+def transcode_images(files, power_factor=1):
     # filter out files that already have '.avif' version in the same directory
     files = [file for file in files if not os.path.exists(file["path"].replace(file["ext"], ".avif"))]
     
     codec = Image()
-    codec.transcode_images(files)
+    half_power = multiprocessing.cpu_count() * power_factor
+    codec.transcode_images(files, threads=half_power)
 
 #---------------------------------------------
 # Main
