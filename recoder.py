@@ -1,7 +1,9 @@
 import os
 import glob
+import time
 import shutil
 import subprocess
+import threading
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -138,7 +140,6 @@ class Video:
         ]
         subprocess.run(cmd)
 
-
     def transcode_videos(self, video_files, exclude_codecs=["hevc", "av1", "h265", "x265"]):
         # process each video file
         for entry in video_files:
@@ -162,16 +163,19 @@ class Image:
     BALANCED = {'min': '15', 'max': '25', 'speed': '4', 'depth': '8', 'yuv': '420'}
     SPEED = {'min': '20', 'max': '30', 'speed': '8', 'depth': '8', 'yuv': '420'}
 
+    def __init__(self):
+        self.counter = TaskCounter(0)
+
     def transcode_image_to_avif(self, input_path, output_path, params=BALANCED):
         command = ['avifenc']
         for key, value in params.items():
             command.extend(['--' + key, value])
         command.extend([input_path, output_path])
-        subprocess.run(command, check=True)
+        with open(os.devnull, 'wb') as devnull:
+            subprocess.run(command, stdout=devnull, stderr=devnull, check=True)
 
-    def transcode_images(self, image_files, params=BALANCED):
-        with ThreadPoolExecutor() as executor:
-            executor.map(self.transcode_image, image_files, [params] * len(image_files))
+        self.counter.increment()
+        self.counter.report_progress(50)
 
     def transcode_image(self, entry, params):
         file_path = entry["path"]
@@ -179,9 +183,81 @@ class Image:
         name, ext = os.path.splitext(file_name)
         new_file_path = os.path.join(file_dir, f"{name}.avif")
         
-        print(f"Transcoding '{file_name}' to AVIF...")
         self.transcode_image_to_avif(file_path, new_file_path, params)
-        print(f"Transcoded '{file_name}' to '{new_file_path}'.")
+
+    def transcode_images(self, image_files, params=BALANCED):
+        # report how many images are being transcoded
+        print(f"Transcoding {len(image_files)} images...")
+
+        self.counter.start(len(image_files))
+        with ThreadPoolExecutor() as executor:
+            executor.map(self.transcode_image, image_files, [params] * len(image_files))
+
+#---------------------------------------------
+# Task counter and reporter
+#---------------------------------------------
+class TaskCounter:
+    def __init__(self, total):
+        self.count = 0
+        self.total = total
+        self.start_time = None
+        self.lock = threading.Lock()
+
+    def start(self, total):
+        with self.lock:
+            self.count = 0
+            self.total = total
+            self.start_time = time.time()
+
+    def increment(self):
+        with self.lock:
+            self.count += 1
+            current_count = self.count
+        return current_count
+    
+    def progress(self):
+        return self.count / self.total
+    
+    def report_progress(self, max_length):
+        """
+        Creates a console progress bar.
+        
+        :param progress: Current progress (between 0 and 1).
+        :param max_length: The total length of the progress bar in characters.
+        :param file_path: The path of the last file being processed.
+        :param max_path_length: Maximum length of the displayed file path.
+        """
+        # Ensure progress is within bounds
+        value = min(max(self.progress(), 0), 1)
+
+        # Calculate the number of '#' characters
+        num_hashes = int(value * max_length)
+
+        # Create the bar string
+        bar = '#' * num_hashes + '.' * (max_length - num_hashes)
+
+        # Create the progress display string
+        time_estimate = self.time_report()
+        progress_display = f"[{self.count}/{self.total}] {bar} {value * 100:.2f}% {time_estimate}"
+
+        # Print the progress bar
+        print(progress_display, end='\r', flush=True)
+    
+    def time_report(self):
+        with self.lock:
+            if self.count == 0:
+                return "Estimating time..."
+            else:
+                elapsed_time = time.time() - self.start_time
+                average_time_per_task = elapsed_time / self.count
+                remaining_time = average_time_per_task * (self.total - self.count)
+                return self.format_time(remaining_time)
+
+    @staticmethod
+    def format_time(seconds):
+        hours, remainder = divmod(int(seconds), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 #---------------------------------------------
 # Aux
@@ -210,6 +286,9 @@ def transcode_movies(files):
     codec.transcode_videos(files)
 
 def transcode_images(files):
+    # filter out files that already have '.avif' version in the same directory
+    files = [file for file in files if not os.path.exists(file["path"].replace(file["ext"], ".avif"))]
+    
     codec = Image()
     codec.transcode_images(files)
 
@@ -227,6 +306,6 @@ image_extensions = [".jpg", ".jpeg", ".png", ".tga", ".bmp", ".gif", ".tiff", ".
 
 # Transcode image files
 helper = Files()
-image = helper.total_image("/Users/gobra/Desktop/Transcode/Big Photos", False)
+image = helper.total_image("/Users/gobra/Desktop/Transcode/", True)
 images = helper.extract_files(image, image_extensions)
 transcode_images(images)
