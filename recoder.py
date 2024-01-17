@@ -49,7 +49,7 @@ class Files:
     #   files: number of files with the extension
     #   size: total size of all files with the extension in bytes
     def size_per_extension(self, root_dir, recursive=False):
-        detailed_stats = helper.total_image(source, True)
+        detailed_stats = helper.total_image(root_dir, True)
 
         summed_stats = []
         for ext in detailed_stats:
@@ -272,51 +272,69 @@ class TaskCounter:
 #---------------------------------------------
 # Aux
 #---------------------------------------------
-def print_summed_stats(stats):
-    for item in stats:
-        nice_size = round(item["size"] / (1024 * 1024), 2)
-        print(item["ext"] + ": " + str(item["files"]) + " files, " + str(nice_size) + " Mb")
+class Transcoder:
+    def __init__(self):
+        self.imageCodec = Image()
+        self.videoCodec = Video()
+        self.fs = Files()
 
-def print_files(files):
-    for file in files:
-        nice_size = round(file["size"] / (1024 * 1024), 2)
-        print(file["path"] + ": " + str(nice_size) + " Mb")
+    def print_summed_stats(self, stats):
+        for item in stats:
+            nice_size = round(item["size"] / (1024 * 1024), 2)
+            print(item["ext"] + ": " + str(item["files"]) + " files, " + str(nice_size) + " Mb")
 
-def copy_movies(source, destination, extensions):
-    
-    print("Scanning '" + source + "':")
+    def print_files(self, files):
+        for file in files:
+            nice_size = round(file["size"] / (1024 * 1024), 2)
+            print(file["path"] + ": " + str(nice_size) + " Mb")
 
-    helper = Files()
-    image = helper.total_image(source, True)
-    movies = helper.extract_files(image, extensions)
-    helper.transfer(movies, source, destination, False)
+    def copy_movies(self, source, destination, extensions):
+        print("Scanning '" + source + "':")
 
-def transcode_movies(files):
-    codec = Video()
-    codec.transcode_videos(files)
+        image = self.fs.total_image(source, True)
+        movies = self.fs.extract_files(image, extensions)
+        self.fs.transfer(movies, source, destination, False)
 
-def transcode_images(files, power_factor=1):
-    # filter out files that already have '.avif' version in the same directory
-    files = [file for file in files if not os.path.exists(file["path"].replace(file["ext"], ".avif"))]
-    
-    codec = Image()
-    half_power = multiprocessing.cpu_count() * power_factor
-    codec.transcode_images(files, threads=half_power)
+    def transcode_movies(self, files):
+        # transcoded videos will be saved in the same directory as the source file
+        # with '_AV1' before the extension, e.g. 'video.mp4' -> 'video_AV1.mp4'
+        #
+        # hence, filter out files that already have '_AV1' in the same directory
+        files = [file for file in files if not os.path.exists(file["path"].replace(file["ext"], "_AV1" + file["ext"]))]
+
+        self.videoCodec.transcode_videos(files)
+
+    def transcode_movies_in_directory(self, dir):
+        movie_extensions = [".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".mpg", ".mpeg", ".m4v", ".3gp", ".3g2"]
+
+        image = self.fs.total_image(dir, True)
+        movies = self.fs.extract_files(image, movie_extensions)
+        self.transcode_movies(movies)
+
+    def transcode_images(self, files, power_factor=1):
+        # transcoded images will be saved in the same directory as the source file
+        # with '.avif' extension, e.g. 'image.jpg' -> 'image.avif'
+        #
+        # filter out files that already have '.avif' version in the same directory
+        files = [file for file in files if not os.path.exists(file["path"].replace(file["ext"], ".avif"))]
+        
+        half_power = multiprocessing.cpu_count() * power_factor
+        self.imageCodec.transcode_images(files, threads=half_power)
+
+    def transcode_images_in_directory(self, dir):
+        image_extensions = [".jpg", ".jpeg", ".png", ".tga", ".bmp", ".gif", ".tiff", ".tif"]
+
+        image = self.fs.total_image(dir, True)
+        images = self.fs.extract_files(image, image_extensions)
+        self.transcode_images(images)
 
 #---------------------------------------------
 # Main
 #---------------------------------------------
-movie_extensions = [".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".mpg", ".mpeg", ".m4v", ".3gp", ".3g2"]
-image_extensions = [".jpg", ".jpeg", ".png", ".tga", ".bmp", ".gif", ".tiff", ".tif"]
+coder = Transcoder()
 
-# Transcoding video files
-#helper = Files()
-#image = helper.total_image("/Users/gobra/Desktop/Transcode/Camera", False)
-#videos = helper.extract_files(image, movie_extensions) 
-#transcode_movies(videos)
+# all images -> AVIF, recursive, except those already transcoded
+#coder.transcode_images_in_directory("/Users/gobra/Desktop/Transcode")
 
-# Transcode image files
-helper = Files()
-image = helper.total_image("/Users/gobra/Desktop/Transcode/", True)
-images = helper.extract_files(image, image_extensions)
-transcode_images(images)
+# all videos -> AV1, recursive, except those already transcoded
+coder.transcode_movies_in_directory("/Users/gobra/Desktop/Transcode")
