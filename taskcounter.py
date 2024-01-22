@@ -5,70 +5,102 @@ import threading
 # Task counter and reporter
 #---------------------------------------------
 class TaskCounter:
-    def __init__(self, total, interval=1):
+    def __init__(self, interval=1, subunits=False):
         self.count = 0
-        self.total = total
         self.start_time = None
         self.last_report_time = 0
-        self.report_interval = interval  # Report interval in seconds
+        self.report_interval = interval  # report interval in seconds
+        self.subunits = subunits         # if true, we will use subunits to estimate completion time
         self.lock = threading.Lock()
 
-    def start(self, total):
-        with self.lock:
-            self.count = 0
-            self.total = total
-            self.start_time = time.time()
-            self.last_report_time = self.start_time
+    def start(self, total, subunits_total=None):
+        self.count = 0
+        self.subunits_count = 0
+        self.total = total
+        self.subunits_total = subunits_total
+        self.start_time = time.time()
 
-    def increment(self):
+        self.estimated_on = 0
+        self.estimate_time = 0
+
+        self.last_report_time = self.start_time
+
+    def increment(self, subunits=None):
         with self.lock:
             self.count += 1
-            current_count = self.count
-        return current_count
+
+            if self.subunits:
+                if subunits is None:
+                    raise Exception("Subunits are enabled, but no subunits were provided")
+                else:
+                    self.subunits_count += subunits
     
     def progress(self):
         return self.count / self.total
     
-    def report_progress(self, max_length):
-        """
-        Creates a console progress bar.
-        
-        :param progress: Current progress (between 0 and 1).
-        :param max_length: The total length of the progress bar in characters.
-        :param file_path: The path of the last file being processed.
-        :param max_path_length: Maximum length of the displayed file path.
-        """
-
+    def report_progress(self, max_length, custom_strings=None):
+        # check is report is needed
         current_time = time.time()
         if current_time - self.last_report_time < self.report_interval:
             return
         self.last_report_time = current_time
 
-        # Ensure progress is within bounds
-        value = min(max(self.progress(), 0), 1)
+        # Creates a console progress bar
+        # :param progress: Current progress (between 0 and 1)
+        # :param max_length: The total length of the progress bar in characters
+        # :param path: The path of the last file being processed
+        # :param custom_strings: Any lines to print above the progress bar
 
-        # Calculate the number of '#' characters
-        num_hashes = int(value * max_length)
+        # initialize lines array, copy custom strings
+        lines = custom_strings.copy() if custom_strings else []
 
-        # Create the bar string
-        bar = '#' * num_hashes + '.' * (max_length - num_hashes)
+        # calculate progress bar params
+        value = min(max(self.progress(), 0), 1)                     # ensure progress is within bounds
+        num_hashes = int(value * max_length)                        # calculate the number of '#' characters
+        bar = '#' * num_hashes + '.' * (max_length - num_hashes)    # create the bar string
 
-        # Create the progress display string
+        # create the progress display string
         time_estimate = self.time_report()
-        progress_display = f"[{self.count}/{self.total}] {bar} {value * 100:.2f}% {time_estimate}"
+        progress_display = f"[{self.count}/{self.total}] {bar} {value * 100:.2f}% {time_estimate}\r"
+        lines.append(progress_display)
+
+        # ANSI escape codes:
+        # \x1b[2K   - clear the current line
+        # \x1b[A    - move cursor up one line
+        # \r        - move cursor to the beginning of the line
+
+        # create a single string from the lines array, with:
+        # - each line starting with a clear line command
+        # - each line separated by a newline
+        # - the cursor moved up lines.count times at the end and the cursor moved to the beginning of the line
+        builder = ""
+        rewind = "\r"
+        for line in lines:
+            builder += f"\x1b[2K{line}\n"
+            rewind = "\x1b[A" + rewind
+        custom_display = builder + rewind
 
         # Print the progress bar
-        print(progress_display, end='\r', flush=True)
+        with self.lock:
+            print(custom_display, end='', flush=True)
     
     def time_report(self):
+        # use total/count with or without subunits
+        total = self.subunits_total if not self.subunits else self.total
+        count = self.subunits_count if not self.subunits else self.count
+
         with self.lock:
-            if self.count == 0:
+            if count == 0:
                 return "Estimating time..."
-            else:
+            elif count != self.estimated_on:
                 elapsed_time = time.time() - self.start_time
-                average_time_per_task = elapsed_time / self.count
-                remaining_time = average_time_per_task * (self.total - self.count)
-                return self.format_time(remaining_time)
+                average_time_per_task = elapsed_time / count
+                remaining_time = average_time_per_task * (total - count)
+
+                self.estimate_time = self.format_time(remaining_time)
+                self.estimated_on = count
+
+            return self.estimate_time
 
     @staticmethod
     def format_time(seconds):

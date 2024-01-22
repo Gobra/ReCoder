@@ -1,7 +1,9 @@
 import os
+import time
 import multiprocessing
 
 from fshelper import FSHelper
+from taskcounter import TaskCounter
 from transcoding import ImageTranscoder, VideoTranscoder
 
 #---------------------------------------------
@@ -49,8 +51,14 @@ class Converter:
         files = []
         for file in input:
             recoded_path = self.add_file_suffix(file["path"], "_AV1")
-            if "_AV1" not in file["path"] and not os.path.exists(recoded_path):
-                files.append(file)
+            if "_AV1" not in file["path"]:
+                # check transcodind is valid
+                if os.path.exists(recoded_path):
+                    if not VideoTranscoder.check_transcoding_validity(file["path"], recoded_path):
+                        os.remove(recoded_path)
+
+                if not os.path.exists(recoded_path):
+                    files.append(file)
 
         self.videoCodec.transcode_movies(files)
 
@@ -89,7 +97,7 @@ class Converter:
 converter = Converter()
 
 # all images -> AVIF, recursive, except those already transcoded
-converter.transcode_images_in_directory("/Users/gobra/Desktop/Transcode")
+#converter.transcode_images_in_directory("/Users/gobra/Desktop/Transcode")
 
 # all videos -> AV1, recursive, except those already transcoded
-#converter.transcode_movies_in_directory("/Users/gobra/Desktop/Transcode")
+converter.transcode_movies_in_directory("/Users/gobra/Desktop/Transcode")
