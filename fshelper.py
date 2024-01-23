@@ -6,6 +6,18 @@ import shutil
 # FileSystem helper
 #---------------------------------------------
 class FSHelper:
+    @staticmethod
+    def replace_file_extention(file_path, ext):
+        file_dir, file_name = os.path.split(file_path)
+        name, _ = os.path.splitext(file_name)
+        return os.path.join(file_dir, f"{name}{ext}")
+    
+    @staticmethod
+    def add_file_suffix(file_path, suffix):
+        file_dir, file_name = os.path.split(file_path)
+        name, ext = os.path.splitext(file_name)
+        return os.path.join(file_dir, f"{name}{suffix}{ext}")
+
     # returns a list of files matching the wildcard
     def files_list(self, root_dir, wildcard, recursive=False):
         search_string = os.path.join(root_dir, wildcard)
