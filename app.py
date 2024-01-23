@@ -57,10 +57,10 @@ class App:
         if os.path.exists(recoded_path):
             return (None, duration, 'transcoded version exists and is valid')
 
-        codec = self.videoCodec.get_codec_info(file_path)
+        codec = self.videoCodec.get_video_info(file_path)['video_codec']
         if codec != "av1" and codec != "hevc":
             if duration is None:
-                duration = self.videoCodec.get_video_length(file_path)
+                duration = self.videoCodec.get_video_info(file_path)['duration']
 
             # C. file is not transcoded, there's no transcoded version, and it's not AV1 or HEVC
             return (file, duration, 'OK')
@@ -78,6 +78,10 @@ class App:
         # initialize TaskCounter
         counter = TaskCounter(0.1)
         counter.start(len(files))
+
+        # test, get info about the first file
+        file = files[0]
+        file_path = file["path"]
 
         # process files using ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=4) as executor:
