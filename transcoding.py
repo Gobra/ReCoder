@@ -29,6 +29,7 @@ class VideoTranscoder:
     def __init__(self):
         self.db = {}
         self.counter = TaskCounter(0.1)
+        self.failed = []
         self.lock = threading.Lock()
 
     def __query(self, file_path):
@@ -116,6 +117,9 @@ class VideoTranscoder:
                 line = process.stderr.readline()
                 if not line:
                     break
+                if "failed" in line:
+                    self.failed.append(file)
+                    break
 
                 # Extract the duration and time information
                 progress=''
@@ -144,6 +148,7 @@ class VideoTranscoder:
             # wait for the process to finish
             process.wait()
             counter.increment(units=1, subunits=0)
+            counter.report_progress(50, custom_strings=[""])
 
     # It works, it's fast, but the output quality is definitely worse than av1_svt,
     # it seems to be a good codec for streaming, but not for archiving
@@ -188,6 +193,12 @@ class VideoTranscoder:
             file_path = file["path"]
             new_file_path = VideoTranscoder.transcoded_movie_path(file_path)
             self.transcode_to_av1_svt(file_path, new_file_path, params)
+
+        # report failed files
+        if len(self.failed) > 0:
+            print("Failed files:")
+            for file in self.failed:
+                print(f" - {file}")
 
     @staticmethod
     def transcoded_movie_path(file_path):
