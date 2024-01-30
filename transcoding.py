@@ -63,6 +63,8 @@ class VideoTranscoder:
                 entry['duration'] = float(duration_str)
             except ValueError:
                 entry['duration'] = 0.0
+        else:
+            entry['duration'] = 0.0
 
         # extract stream information
         has_video = False

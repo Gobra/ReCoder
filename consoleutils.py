@@ -21,6 +21,11 @@ class ConsoleUtils:
         print(custom_display, end='' if do_rewind else '\n', flush=True)
 
     @staticmethod
+    def print_and_rewind(line):
+        # print a line and move the cursor to the beginning of the line
+        ConsoleUtils.print_multiline([line], do_rewind=True)
+
+    @staticmethod
     def clear_lines(count):
         lines = " " * count
         ConsoleUtils.print_multiline(lines, do_rewind=True)

@@ -1,11 +1,15 @@
 import os
 import glob
 import shutil
+import threading
 
 #---------------------------------------------
 # FileSystem helper
 #---------------------------------------------
 class FSHelper:
+    def __init__(self):
+        self.lock = threading.Lock()
+
     @staticmethod
     def replace_file_extention(file_path, ext):
         file_dir, file_name = os.path.split(file_path)
@@ -77,32 +81,48 @@ class FSHelper:
     #   path: full path to the file
     #   ext: extension of the file
     #   size: size of the file in bytes
-    def extract_files(self, total_image, extensions):
+    def extract_files(self, total_image, extensions=[]):
         result = []
-        for item in extensions:
-            ext = item.lower()
-            if ext in total_image:
+
+        if (len(extensions) > 0):
+            for item in extensions:
+                ext = item.lower()
+                if ext in total_image:
+                    result += total_image[ext]
+        else:
+            for ext in total_image:
                 result += total_image[ext]
+
         return result
     
     # copies files to a new root directory, preserving the directory structure,
-    # input files must be the result of extract_files or same structure
-    def transfer(self, files, old_root, new_root, skip_existing=False):
-        # create the same directory structure in the new root and copy files
-        for file in files:
-            path = file["path"]
-            if not path.startswith(old_root):
-                raise Exception("File '" + path + "' does not start with '" + old_root + "'")
+    # input file must be the result of extract_files or same structure
+    def transfer_file(self, file, old_root, new_root, skip_existing=False, erase_original=False):
+        path = file["path"]
+        if not path.startswith(old_root):
+            raise Exception("File '" + path + "' does not start with '" + old_root + "'")
 
-            # get new path
-            new_path = path.replace(old_root, new_root)
+        # get new path
+        new_path = path.replace(old_root, new_root)
 
-            # create directory
-            new_dir = os.path.dirname(new_path)
+        # create directory
+        new_dir = os.path.dirname(new_path)
+        with self.lock:
             if not os.path.exists(new_dir):
                 os.makedirs(new_dir)
 
-            # copy file with overwrite
-            print("- Copying '" + path + "' to '" + new_path + "'")
-            if not skip_existing or not os.path.exists(new_path):
-                shutil.copy2(path, new_path)
+        # copy file with overwrite
+        if not skip_existing or not os.path.exists(new_path):
+            #shutil.copyfile(path, new_path)
+            shutil.copy2(path, new_path)
+            if erase_original:
+                os.remove(path)
+
+    # copies files to a new root directory, preserving the directory structure,
+    # input files must be the result of extract_files or same structure
+    def transfer(self, files, old_root, new_root, skip_existing=False, erase_original=False, per_item_callback=None):
+        for file in files:
+            self.transfer_file(file, old_root, new_root, skip_existing, erase_original)
+
+            if per_item_callback is not None:
+                per_item_callback(file)
